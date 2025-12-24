@@ -81,6 +81,11 @@ jobs:
         run: |
           terraform workspace select ${{ env.ENVIRONMENT }} || terraform workspace new ${{ env.ENVIRONMENT }}
 
+      # Re-initialize Terraform after workspace selection
+      - name: Re-initialize Terraform
+        working-directory: terraform
+        run: terraform init -upgrade
+
       # Validate Terraform Configuration
       - name: Terraform Validate
         working-directory: terraform
