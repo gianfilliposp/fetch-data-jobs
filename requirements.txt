@@ -1,0 +1,6 @@
+openapi-core==0.17.2
+PyYAML==6.0.1
+boto3==1.34.69
+python-json-logger==2.0.7
+uuid==1.30
+bcrypt==4.1.2

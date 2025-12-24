@@ -1,0 +1,32 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": ["name", "email", "password", "company_id", "telephone"],
+    "properties": {
+        "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+        },
+        "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 255
+        },
+        "password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 100
+        },
+        "company_id": {
+            "type": "string",
+            "description": "Accountability ID"
+        },
+        "telephone": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20
+        }
+    },
+    "additionalProperties": false
+} 
