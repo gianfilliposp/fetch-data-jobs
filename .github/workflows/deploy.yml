@@ -97,11 +97,6 @@ jobs:
           fi
           echo "Found environment file: environments/${{ env.ENVIRONMENT }}.tfvars"
 
-      # Plan Terraform Changes
-      - name: Terraform Plan
-        working-directory: terraform
-        run: terraform plan -var-file="environments/${{ env.ENVIRONMENT }}.tfvars"
-
       # Apply Terraform Changes
       - name: Terraform Apply
         working-directory: terraform
