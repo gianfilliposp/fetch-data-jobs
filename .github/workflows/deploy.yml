@@ -8,7 +8,7 @@ on:
     paths:
       - 'layers/**'
       - 'terraform/**'
-      - 'src/**'
+      - 'lambda/**'
       - 'makefile'
   workflow_dispatch:
     inputs:
@@ -86,7 +86,12 @@ jobs:
         working-directory: terraform
         run: terraform validate
 
+      # Plan Terraform Changes
+      - name: Terraform Plan
+        working-directory: terraform
+        run: terraform plan -var-file="environments/${{ env.ENVIRONMENT }}.tfvars"
+
       # Apply Terraform Changes
       - name: Terraform Apply
         working-directory: terraform
-        run: terraform apply -auto-approve -var-file="terraform/environments/${{ env.ENVIRONMENT }}.tfvars"
+        run: terraform apply -auto-approve -var-file="environments/${{ env.ENVIRONMENT }}.tfvars"
