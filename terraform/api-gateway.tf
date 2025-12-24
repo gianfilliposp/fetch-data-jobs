@@ -10,22 +10,12 @@ resource "aws_apigatewayv2_api" "api" {
   }
 }
 
-# API Gateway Deployment
-resource "aws_apigatewayv2_deployment" "api" {
-  api_id = aws_apigatewayv2_api.api.id
-
-  # Add route dependencies here when you add routes
-  # depends_on = [
-  #   aws_apigatewayv2_route.example
-  # ]
-}
-
 # API Gateway Stage
+# With auto_deploy = true, deployments are automatically created when routes are added
 resource "aws_apigatewayv2_stage" "api" {
-  api_id        = aws_apigatewayv2_api.api.id
-  name          = var.environment
-  deployment_id = aws_apigatewayv2_deployment.api.id
-  auto_deploy   = true
+  api_id      = aws_apigatewayv2_api.api.id
+  name        = var.environment
+  auto_deploy = true
 }
 
 # Example API Gateway Integration and Route
