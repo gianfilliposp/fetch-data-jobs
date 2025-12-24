@@ -1,6 +1,6 @@
 # Variables
 AWS_REGION=us-east-2
-BUCKET_NAME=terraform-state-menu-service
+BUCKET_NAME=terraform-state-fetch-event-service
 PROFILE=
 LAYER_ZIP=layers/lambda_layer.zip
 REQUIREMENTS_FILE=layers/requirements.txt

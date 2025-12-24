@@ -7,7 +7,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket = "terraform-state-menu-service"
+    bucket = "terraform-state-fetch-event-service"
     key = "state/terraform.tfstate"
     region = "us-east-2"
   }
