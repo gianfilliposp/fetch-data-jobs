@@ -86,6 +86,17 @@ jobs:
         working-directory: terraform
         run: terraform validate
 
+      # Verify environment file exists
+      - name: Verify Environment File
+        working-directory: terraform
+        run: |
+          if [ ! -f "environments/${{ env.ENVIRONMENT }}.tfvars" ]; then
+            echo "Error: environments/${{ env.ENVIRONMENT }}.tfvars not found!"
+            ls -la environments/
+            exit 1
+          fi
+          echo "Found environment file: environments/${{ env.ENVIRONMENT }}.tfvars"
+
       # Plan Terraform Changes
       - name: Terraform Plan
         working-directory: terraform

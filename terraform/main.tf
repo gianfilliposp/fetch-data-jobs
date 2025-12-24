@@ -6,16 +6,14 @@ terraform {
     }
   }
 
-  # Using local state for simplicity (default)
-  # Remove this block to use local state, or configure your backend
-  # backend "s3" {
-  #   bucket = "your-terraform-state-bucket"
-  #   key    = "terraform.tfstate"
-  #   region = "us-east-1"
-  # }
+  backend "s3" {
+    bucket = "terraform-state-menu-service"
+    key = "state/terraform.tfstate"
+    region = "us-east-2"
+  }
 }
+
 
 provider "aws" {
-  region = var.aws_region
+  region                   = "us-east-2"
 }
-
