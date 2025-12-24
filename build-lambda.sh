@@ -4,7 +4,7 @@
 set -e
 
 # Base directories
-SRC_DIR="src"
+SRC_DIR="lambda"
 
 # Iterate through all directories in src
 for dir in "$SRC_DIR"/*; do
