@@ -84,14 +84,42 @@ resource "aws_iam_instance_profile" "ec2_profile" {
 locals {
   user_data = <<-EOF
 #!/bin/bash
-# Update system
-apt-get update -y
+set -e  # Exit on error
+exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
-# Install Python and pip
-apt-get install -y python3 python3-pip
+echo "Starting user data script..."
 
-# Install Flask
-pip3 install flask
+# Update system (Amazon Linux 2023 uses dnf)
+dnf update -y
+
+# Install Python 3 and pip (usually pre-installed, but ensure it's there)
+dnf install -y python3 python3-pip
+
+# Verify Python and pip are installed
+python3 --version
+python3 -m pip --version
+
+# Install Flask using python3 -m pip to ensure we use the correct pip
+# Amazon Linux 2023 may require --break-system-packages flag
+python3 -m pip install --upgrade pip --break-system-packages 2>&1 || python3 -m pip install --upgrade pip 2>&1
+python3 -m pip install flask --break-system-packages 2>&1 || python3 -m pip install flask 2>&1
+
+# Verify Flask is installed and can be imported
+echo "Verifying Flask installation..."
+if python3 -c "import flask; print(f'Flask version: {flask.__version__}')" 2>&1; then
+    echo "Flask installed successfully at:"
+    python3 -c "import flask; print(flask.__file__)"
+else
+    echo "ERROR: Flask installation verification failed!"
+    echo "Python sys.path:"
+    python3 -c "import sys; print('\n'.join(sys.path))" 2>&1
+    echo "Searching for Flask:"
+    find /usr -name flask -type d 2>/dev/null | head -5 || true
+    find /usr/local -name flask -type d 2>/dev/null | head -5 || true
+    echo "Trying to install Flask again with verbose output:"
+    python3 -m pip install flask --break-system-packages -v 2>&1 | tail -20
+    exit 1
+fi
 
 # Create web server directory
 mkdir -p /var/www/app
@@ -120,8 +148,17 @@ if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80, debug=False)
 PYTHON_EOF
 
-# Create systemd service
-cat > /etc/systemd/system/flask-app.service << 'SERVICE_EOF'
+# Find the correct python3 path
+PYTHON3_PATH=$(which python3)
+echo "Python3 path: $PYTHON3_PATH"
+
+# Get Python site-packages paths for PYTHONPATH
+PYTHON_SITE_PACKAGES=$(python3 -c "import site; print(':'.join(site.getsitepackages()))" 2>/dev/null || echo "/usr/local/lib/python3.11/site-packages:/usr/lib/python3.11/site-packages")
+echo "Python site-packages: $PYTHON_SITE_PACKAGES"
+
+# Create systemd service file with proper PYTHONPATH
+# Using printf to properly handle variable expansion
+cat > /tmp/flask-app.service << 'SERVICETEMPLATE'
 [Unit]
 Description=Flask Hello World App
 After=network.target
@@ -130,18 +167,52 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/var/www/app
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=PYTHONPATH_PLACEHOLDER"
 ExecStart=/usr/bin/python3 /var/www/app/app.py
 Restart=always
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-SERVICE_EOF
+SERVICETEMPLATE
+
+# Replace placeholder with actual PYTHONPATH
+sed "s|PYTHONPATH_PLACEHOLDER|${PYTHON_SITE_PACKAGES}|g" /tmp/flask-app.service > /etc/systemd/system/flask-app.service
+rm /tmp/flask-app.service
+
+# Verify Flask is still accessible before starting service
+python3 -c "import flask" || {
+    echo "ERROR: Flask not found before starting service!"
+    exit 1
+}
 
 # Enable and start the service
 systemctl daemon-reload
 systemctl enable flask-app
+
+# Wait a moment before starting
+sleep 2
 systemctl start flask-app
+
+# Wait a moment and check status
+sleep 5
+if systemctl is-active --quiet flask-app; then
+    echo "Flask service started successfully"
+    systemctl status flask-app --no-pager -n 20 || true
+else
+    echo "ERROR: Flask service failed to start"
+    systemctl status flask-app --no-pager -n 50 || true
+    exit 1
+fi
+
+# Check if port 80 is listening
+echo "Checking if port 80 is listening..."
+ss -tlnp | grep :80 || netstat -tlnp | grep :80 || echo "Port 80 not yet listening (may take a few more seconds)"
+
+echo "User data script completed"
 EOF
 }
 
@@ -212,5 +283,11 @@ output "ec2_public_dns" {
 output "hello_world_url" {
   description = "URL to access the hello world endpoint"
   value       = "http://${aws_instance.web_server.public_ip}"
+}
+
+# Output the EC2 instance ID for debugging
+output "ec2_instance_id" {
+  description = "EC2 instance ID for debugging"
+  value       = aws_instance.web_server.id
 }
 
