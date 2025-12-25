@@ -13,6 +13,6 @@ variable "environment" {
 variable "project_name" {
   description = "Project name for resource naming"
   type        = string
-  default     = "contador-backend"
+  default     = "fetch-data-jobs"
 }
 
