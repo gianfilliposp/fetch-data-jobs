@@ -13,13 +13,6 @@ from postgrest.exceptions import APIError
 # CONSTANTES E CONFIGURAÇÕES
 # ============================================================================
 
-# Arquivo de saída
-OUTPUT_FILE_BASE = "candidates_data"
-OUTPUT_FILE_EXTENSION = ".csv"
-CSV_DELIMITER = ';'
-CSV_ENCODING = "utf-8-sig"
-CSV_HEADERS = ["ID", "Nome", "Cargo", "Telefone", "Email", "Salario", "Endereco", "Sexo", "Estado Civil", "Data Nascimento", "Escritorio", "ParadaTaipas", "Elisio", "EdgarFaco", "CT", "PaulaFerreira"]
-
 # Configuração de lotes
 BATCH_SIZE = 100  # Número de registros por arquivo CSV
 
@@ -184,14 +177,6 @@ def extract_salary(html_content):
 
 
 # ============================================================================
-# FUNÇÕES DE ARQUIVO
-# ============================================================================
-
-def get_output_filename(batch_number):
-    """Retorna o nome do arquivo CSV para o lote especificado"""
-    return f"{OUTPUT_FILE_BASE}_{batch_number}{OUTPUT_FILE_EXTENSION}"
-
-# ============================================================================
 # FUNÇÕES DE REQUISIÇÃO HTTP
 # ============================================================================
 
@@ -200,8 +185,8 @@ def build_pagination_request_data(page_number):
     return {
         'Pagination[PageNumber]': page_number,
         'Pagination[PageSize]': PAGE_SIZE,
-        'CEP=': CEP,
-        'MaxDistance=': MAX_DISTANCE,
+        'CEP': CEP,
+        'MaxDistance': MAX_DISTANCE,
         **LOCATION_FILTERS
     }
 
@@ -214,7 +199,8 @@ def fetch_candidate_ids_from_page(page_number):
         LIST_CANDIDATES_URL,
         headers=HEADERS,
         params=request_data,
-        cookies=COOKIES
+        cookies=COOKIES,
+        proxies=PROXIES
     )
     candidate_ids = sorted(set(re.findall(REGEX_PATTERNS['candidate_id'], response.text)))
     return candidate_ids
@@ -227,7 +213,8 @@ def fetch_candidate_full_details(candidate_id):
     response = requests.get(
         detail_url,
         headers=DETAIL_FULL_HEADERS,
-        cookies=COOKIES
+        cookies=COOKIES,
+        proxies=PROXIES
     )
     return response.text
 
@@ -238,17 +225,22 @@ def fetch_candidate_full_details(candidate_id):
 
 def extract_name_from_html(full_html):
     """Extrai o nome do candidato do HTML completo"""
-    # Try the main pattern first
-    name_match = re.search(REGEX_PATTERNS['name'], full_html, re.DOTALL)
+    #name_match = re.search(REGEX_PATTERNS['name'], full_html, re.DOTALL)
+    name_match = re.search(r'class="font-4xl[^>]*>([^<]+)</div>', full_html)
+
     if name_match:
-        return decode_text(name_match.group(1))
+        return name_match.group(1)
     return ""
     
 
 def extract_job_from_html(full_html):
     """Extrai o cargo do candidato do HTML completo"""
-    job_match = re.search(REGEX_PATTERNS['job'], full_html)
-    return decode_text(job_match.group(1)) if job_match else ""
+    #job_match = re.search(REGEX_PATTERNS['job'], full_html)
+    job_match = re.search(r'class="[^"]*font-2lg[^"]*">([^<]+)</div>', full_html)
+
+    if job_match:
+        return job_match.group(1)
+    return ""
 
 
 def extract_phone_from_html(full_html):
@@ -427,7 +419,7 @@ def process_single_candidate(candidate_id, batch_number, record_count, supabase_
     try:
         full_html = fetch_candidate_full_details(candidate_id)
         candidate_data = extract_candidate_data(candidate_id, full_html)
-        
+
         # Formatar valores para CSV (None vira string vazia, números como string)
         candidate_row = {
             'id': format_value_for_csv(int(candidate_data['id']) if candidate_data['id'] else None),  # ID como número
@@ -494,7 +486,6 @@ def process_all_pages():
     print(f"📋 Configurações:")
     print(f"   - Páginas a processar: {INITIAL_PAGE + 1} até {MAX_PAGE}")
     print(f"   - Tamanho do lote: {BATCH_SIZE} registros por arquivo")
-    print(f"   - Arquivo base: {OUTPUT_FILE_BASE}{OUTPUT_FILE_EXTENSION}")
     print("="*50)
     
     # Inicializar primeiro arquivo
@@ -532,24 +523,6 @@ def process_all_pages():
 
 
 # ============================================================================
-# FUNÇÕES DE EXIBIÇÃO
-# ============================================================================
-
-def display_results(execution_time, total_batches):
-    """Exibe os resultados finais da execução"""
-    print("-" * 30)
-    if total_batches == 1:
-        print(f"Tudo pronto! O arquivo {get_output_filename(1)} foi gerado com sucesso.")
-    else:
-        print(f"Tudo pronto! {total_batches} arquivos foram gerados com sucesso:")
-        for i in range(1, total_batches + 1):
-            print(f"  - {get_output_filename(i)}")
-    print(f"Tempo total de execução: {execution_time:.2f} segundos.")
-    print(f"Tamanho do lote: {BATCH_SIZE} registros por arquivo.")
-    print("-" * 30)
-
-
-# ============================================================================
 # FUNÇÃO PRINCIPAL
 # ============================================================================
 
@@ -572,4 +545,3 @@ if __name__ == "__main__":
     total_batches = process_all_pages()
     end_time = time.time()
     execution_time = end_time - start_time
-    display_results(execution_time, total_batches)
