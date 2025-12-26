@@ -6,6 +6,8 @@ import html
 import re
 import time
 import requests
+from supabase import create_client, Client
+from postgrest.exceptions import APIError
 
 # ============================================================================
 # CONSTANTES E CONFIGURAÇÕES
@@ -34,6 +36,16 @@ MAX_PAGE = 5
 LOCATION_FILTERS = {
     'IdsLocation2[0]': 64,
     'IdsLocation3[0]': 5211323
+}
+
+# CEP's de cada unidade
+CEPS_UNIDADES_MAP = {
+    '01050-030': 'escritorio',  # Escritorio
+    '02857-010': 'parada_taipas',  # ParadaTaipas
+    '02801-000': 'elisio',  # Elisio
+    '02932-080': 'edgar_faco',  # EdgarFaco
+    '02810-000': 'ct_taipas',  # CT
+    '02915-100': 'paula_ferreira'   # PaulaFerreira
 }
 
 # Proxy (mesmo dos chips de RH)
@@ -115,6 +127,12 @@ DEFAULT_MESSAGE = "Não informado"
 # FUNÇÕES DE UTILIDADE
 # ============================================================================
 
+def supabase_connection():
+    url: str = "https://dtktqviwceofwtuxlojs.supabase.co"
+    key: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0a3Rxdml3Y2VvZnd0dXhsb2pzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA2MjA4NTEsImV4cCI6MjA3NjE5Njg1MX0.pEQVTEz3tXSDzcsfAbN9KXvwh6K8crLvwy2P436v7L4"
+    supabase: Client = create_client(url, key)
+    return supabase
+
 def decode_text(text):
     """Decodifica entidades HTML e escapes de JSON"""
     if not text:
@@ -172,24 +190,6 @@ def extract_salary(html_content):
 def get_output_filename(batch_number):
     """Retorna o nome do arquivo CSV para o lote especificado"""
     return f"{OUTPUT_FILE_BASE}_{batch_number}{OUTPUT_FILE_EXTENSION}"
-
-
-def initialize_csv_file(batch_number):
-    """Cria o arquivo CSV com o cabeçalho para o lote especificado"""
-    filename = get_output_filename(batch_number)
-    with open(filename, "w", newline="", encoding=CSV_ENCODING) as f:
-        writer = csv.writer(f, delimiter=CSV_DELIMITER)
-        writer.writerow(CSV_HEADERS)
-    return filename
-
-
-def save_candidate_to_csv(candidate_data, batch_number):
-    """Salva os dados de um candidato no arquivo CSV do lote especificado"""
-    filename = get_output_filename(batch_number)
-    with open(filename, "a", newline="", encoding=CSV_ENCODING) as f:
-        writer = csv.writer(f, delimiter=CSV_DELIMITER)
-        writer.writerow(candidate_data)
-
 
 # ============================================================================
 # FUNÇÕES DE REQUISIÇÃO HTTP
@@ -380,48 +380,80 @@ def extract_candidate_data(candidate_id, full_html):
 # FUNÇÕES DE PROCESSAMENTO
 # ============================================================================
 
+def insert_supabase(candidato_data, nome_unidade, supabase_cc):
+    candidato_id = candidato_data.get('id')
+
+    try:
+        # 1. Tenta o INSERT direto
+        print(f"Tentando inserir ID {candidato_id}...")
+        return supabase_cc.table("base_catho").insert(candidato_data).execute()
+
+    except APIError as e:
+        # 2. Se o erro for de chave duplicada (geralmente código 23505 no Postgres)
+        # O supabase-py lança APIError quando o banco retorna erro.
+        print(f"Conflito para o ID {candidato_id}. Verificando necessidade de update...")
+        
+        # 3. Busca o registro atual para validar as condições
+        registro = supabase_cc.table("base_catho").select(nome_unidade).eq("id", candidato_id).execute()
+        
+        if registro.data:
+            dados_atuais = registro.data[0]
+            max_distance = dados_atuais.get(nome_unidade)
+
+            # Lógica de validação: nome_unidade é null OU distancia registrada > MAX_DISTANCE
+            condicao_update = (
+                max_distance is None or 
+                (max_distance > MAX_DISTANCE)
+            )
+
+            if condicao_update:
+                print(f"Condições atendidas. Atualizando registro {candidato_id}...")
+                return supabase_cc.table("base_catho").update(candidato_data).eq("id", candidato_id).execute()
+            else:
+                print(f"Registro {candidato_id} já existe e não atende critérios de atualização. Ignorado.")
+        else:
+            # Caso o erro tenha sido outro que não duplicidade
+            print(f"Erro inesperado ao processar ID {candidato_id}: {e}")
+            raise e
+
 def format_value_for_csv(value):
     """Formata valores para CSV: None vira string vazia, números mantêm formato"""
     if value is None:
         return ''  # String vazia para NULL no CSV (será convertido para NULL no banco)
     return str(value)  # Converte tudo para string para o CSV
 
-
-def process_single_candidate(candidate_id, batch_number, record_count):
+def process_single_candidate(candidate_id, batch_number, record_count, supabase_cc):
     """Processa um único candidato: busca dados e salva no CSV"""
     try:
         full_html = fetch_candidate_full_details(candidate_id)
         candidate_data = extract_candidate_data(candidate_id, full_html)
         
         # Formatar valores para CSV (None vira string vazia, números como string)
-        candidate_row = [
-            format_value_for_csv(int(candidate_data['id']) if candidate_data['id'] else None),  # ID como número
-            format_value_for_csv(candidate_data['name']),
-            format_value_for_csv(candidate_data['job']),
-            format_value_for_csv(candidate_data['phone']),
-            format_value_for_csv(candidate_data['email']),
-            format_value_for_csv(candidate_data['salary']),  # Salário como número (None vira string vazia)
-            format_value_for_csv(candidate_data['address']),
-            format_value_for_csv(candidate_data['gender']),
-            format_value_for_csv(candidate_data['marital_status']),
-            format_value_for_csv(candidate_data['birth_date']),  # Data no formato yyyy-mm-dd
-            MAX_DISTANCE if CEP == '01050-030' else -1,  # Escritorio
-            MAX_DISTANCE if CEP == '02857-010' else -1,  # ParadaTaipas
-            MAX_DISTANCE if CEP == '02801-000' else -1,  # Elisio
-            MAX_DISTANCE if CEP == '02932-080' else -1,  # EdgarFaco
-            MAX_DISTANCE if CEP == '02810-000' else -1,  # CT
-            MAX_DISTANCE if CEP == '02915-100' else -1   # PaulaFerreira
-        ]
+        candidate_row = {
+            'id': format_value_for_csv(int(candidate_data['id']) if candidate_data['id'] else None),  # ID como número
+            'nome': format_value_for_csv(candidate_data['name']),
+            'cargo': format_value_for_csv(candidate_data['job']),
+            'telefone': format_value_for_csv(candidate_data['phone']),
+            'email': format_value_for_csv(candidate_data['email']),
+            'salario': format_value_for_csv(candidate_data['salary']),  # Salário como número (None vira string vazia)
+            'endereco': format_value_for_csv(candidate_data['address']),
+            'sexo': format_value_for_csv(candidate_data['gender']),
+            'estado_civil': format_value_for_csv(candidate_data['marital_status']),
+            'data_nascimento': format_value_for_csv(candidate_data['birth_date']),  # Data no formato yyyy-mm-dd
+            CEPS_UNIDADES_MAP.get(CEP): MAX_DISTANCE
+        }
         
-        save_candidate_to_csv(candidate_row, batch_number)
-        print(f"      ✓ Dados salvos: {candidate_data.get('name', 'N/A')}")
+        insert_supabase(candidate_row, CEPS_UNIDADES_MAP.get(CEP), supabase_cc)
+        #save_candidate_to_csv(candidate_row, batch_number)
+        #print(f"      ✓ Dados salvos: {candidate_data.get('name', 'N/A')}")
         return record_count + 1
+    
     except Exception as e:
         print(f"      ❌ Erro ao processar candidato {candidate_id}: {e}")
         return record_count
 
 
-def process_page(page_number, batch_number, record_count):
+def process_page(page_number, batch_number, record_count, supabase_cc):
     """Processa uma página de candidatos"""
     print(f"\n{'='*50}")
     print(f"Processando página {page_number}...")
@@ -444,12 +476,9 @@ def process_page(page_number, batch_number, record_count):
         if current_count >= BATCH_SIZE:
             current_batch += 1
             current_count = 0
-            filename = initialize_csv_file(current_batch)
-            print(f"\n📦 Novo lote criado: {filename}")
             print(f"📄 Lote atual: {current_batch} | Registros no lote: {current_count}/{BATCH_SIZE}")
         
-        print(f"  [{idx}/{len(candidate_ids)}] Processando candidato ID: {candidate_id}")
-        current_count = process_single_candidate(candidate_id, current_batch, current_count)
+        current_count = process_single_candidate(candidate_id, current_batch, current_count, supabase_cc)
     
     print(f"\n✓ Página {page_number} concluída: {len(candidate_ids)} candidatos processados")
     print(f"📊 Total no lote atual: {current_count}/{BATCH_SIZE}")
@@ -471,8 +500,7 @@ def process_all_pages():
     # Inicializar primeiro arquivo
     batch_number = 1
     record_count = 0
-    initialize_csv_file(batch_number)
-    print(f"\n📁 Arquivo inicial criado: {get_output_filename(batch_number)}")
+    supabase_cc = supabase_connection()
     
     page_number = INITIAL_PAGE
     total_pages_processed = 0
@@ -481,7 +509,7 @@ def process_all_pages():
         page_number += 1
         
         try:
-            should_continue, batch_number, record_count = process_page(page_number, batch_number, record_count)
+            should_continue, batch_number, record_count = process_page(page_number, batch_number, record_count, supabase_cc)
             if not should_continue:
                 break
             
