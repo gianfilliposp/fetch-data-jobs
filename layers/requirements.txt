@@ -1,4 +1,0 @@
-SQLAlchemy==2.0.36
-jsonschema==4.17.3
-passlib==1.7.4
-PyJWT==2.8.0
