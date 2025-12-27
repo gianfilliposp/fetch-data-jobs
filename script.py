@@ -23,7 +23,7 @@ DETAIL_CANDIDATE_FULL_URL = "https://pandape.infojobs.com.br/Company/CandidateCa
 # Configurações de paginação
 PAGE_SIZE = 100
 INITIAL_PAGE = 0
-MAX_PAGE = 5
+MAX_PAGE = 101
 
 # Filtros de localização
 LOCATION_FILTERS = {
@@ -100,17 +100,17 @@ COOKIES = {
 # Padrões de regex para extração de dados
 REGEX_PATTERNS = {
     'candidate_id': r'(?:id="candidate-|data-id=")(\d+)',
-    'name': r'<div id="divCandidateName"[^>]>.?<div class="font-4xl fw-600 lh-120 text-capitalize-first">([^<]+)</div>',
-    'job': r'<div[^>]class="[^"]*mb-05[^"]*font-2lg[^"]"[^>]*>([^<]+)</div>',
+    'name': r'<div id="divCandidateName"[^>]*>.*?<div class="font-4xl fw-600 lh-120 text-capitalize-first">([^<]+)</div>',
+    'job': r'<div[^>]*class="[^"]*mb-05[^"]*font-2lg[^"]*"[^>]*>([^<]+)</div>',
     'phone': r'<input[^>]*type="hidden"[^>]*id="hdnPhone"[^>]*name="Phone"[^>]*value="([^"]+)"',
     'email': r'<i class="icon icon-paperplane"></i>.*?<span>([^<]+)</span>',
-    'salary': r'Pretensão salarial\s*:.?<span class="[^"]*c-drk[^"]">([^<]+)</span>',
+    'salary': r'Pretensão salarial\s*:.*?<span class="[^"]*c-drk[^"]*">([^<]+)</span>',
     'address': r'<i class="icon icon-location-pin-2-o"></i>.*?<span>([^<]+)</span>',
     'age_marital': r'<div class="c-md">\s*([^<]+)\s+de\s+(\d+)\s+Anos\s+\(Nasceu[^)]+\)',
-    'working_hours': r'<div id="WorkingHours"[^>]>.?<div class="col-9">\s*<div>([^<]+)</div>',
-    'contract_type': r'<div id="ContractWorkType"[^>]>.?<div class="col-9">\s*<div>([^<]+)</div>',
-    'gender_marital': r'<div class="match-personal-data[^"]">.?<div class="c-md">\s*([^<]+)\s+de\s+\d+\s+Anos',
-    'birth_date': r'<div class="match-personal-data[^"]">.?\(Nasceu\s+([^)]+)\)'
+    'working_hours': r'<div id="WorkingHours"[^>]*>.*?<div class="col-9">\s*<div>([^<]+)</div>',
+    'contract_type': r'<div id="ContractWorkType"[^>]*>.*?<div class="col-9">\s*<div>([^<]+)</div>',
+    'gender_marital': r'<div class="match-personal-data[^"]*">.*?<div class="c-md">\s*([^<]+?)(?:\s+de\s+\d+\s+Anos)?\s*</div>',
+    'birth_date': r'<div class="match-personal-data[^"]*">.*?\(Nasceu\s+([^)]+)\)'
 }
 
 # Valores padrão
@@ -202,6 +202,7 @@ def fetch_candidate_ids_from_page(page_number):
         cookies=COOKIES,
         proxies=PROXIES
     )
+    response.encoding = response.apparent_encoding or 'utf-8'
     candidate_ids = sorted(set(re.findall(REGEX_PATTERNS['candidate_id'], response.text)))
     return candidate_ids
 
@@ -216,6 +217,7 @@ def fetch_candidate_full_details(candidate_id):
         cookies=COOKIES,
         proxies=PROXIES
     )
+    response.encoding = response.apparent_encoding or 'utf-8'
     return response.text
 
 
@@ -225,22 +227,16 @@ def fetch_candidate_full_details(candidate_id):
 
 def extract_name_from_html(full_html):
     """Extrai o nome do candidato do HTML completo"""
-    #name_match = re.search(REGEX_PATTERNS['name'], full_html, re.DOTALL)
-    name_match = re.search(r'class="font-4xl[^>]*>([^<]+)</div>', full_html)
-
+    name_match = re.search(REGEX_PATTERNS['name'], full_html, re.DOTALL)
     if name_match:
-        return name_match.group(1)
+        return decode_text(name_match.group(1))
     return ""
     
 
 def extract_job_from_html(full_html):
     """Extrai o cargo do candidato do HTML completo"""
-    #job_match = re.search(REGEX_PATTERNS['job'], full_html)
-    job_match = re.search(r'class="[^"]*font-2lg[^"]*">([^<]+)</div>', full_html)
-
-    if job_match:
-        return job_match.group(1)
-    return ""
+    job_match = re.search(REGEX_PATTERNS['job'], full_html)
+    return decode_text(job_match.group(1)) if job_match else ""
 
 
 def extract_phone_from_html(full_html):
@@ -309,7 +305,6 @@ def extract_marital_status(full_html):
             if keyword in text_lower:
                 return status
     return DEFAULT_MESSAGE
-
 
 def extract_birth_date(full_html):
     """Extrai a data de nascimento do candidato do HTML completo e formata como yyyy-mm-dd (formato ISO para banco de dados)"""
@@ -478,13 +473,19 @@ def process_page(page_number, batch_number, record_count, supabase_cc):
     return True, current_batch, current_count
 
 
-def process_all_pages():
+def process_all_pages(initial_page=None, max_page=None):
     """Processa todas as páginas de candidatos"""
+    # Usar valores padrão globais se não fornecidos
+    if initial_page is None:
+        initial_page = INITIAL_PAGE
+    if max_page is None:
+        max_page = MAX_PAGE
+    
     print("\n" + "="*50)
     print("🚀 INICIANDO PROCESSAMENTO DE CANDIDATOS")
     print("="*50)
     print(f"📋 Configurações:")
-    print(f"   - Páginas a processar: {INITIAL_PAGE + 1} até {MAX_PAGE}")
+    print(f"   - Páginas a processar: {initial_page + 1} até {max_page}")
     print(f"   - Tamanho do lote: {BATCH_SIZE} registros por arquivo")
     print("="*50)
     
@@ -493,10 +494,10 @@ def process_all_pages():
     record_count = 0
     supabase_cc = supabase_connection()
     
-    page_number = INITIAL_PAGE
+    page_number = initial_page
     total_pages_processed = 0
     
-    while page_number < MAX_PAGE:
+    while page_number < max_page:
         page_number += 1
         
         try:
@@ -531,6 +532,8 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Scrape candidate data and save to CSV files")
     parser.add_argument('--max-distance', type=int, required=True, help='Filtro MaxDistance (obrigatório)')
     parser.add_argument('--cep', type=str, required=True, help='CEP (obrigatório)')
+    parser.add_argument('--initial-page', type=int, default=INITIAL_PAGE, help=f'Página inicial para processar (padrão: {INITIAL_PAGE})')
+    parser.add_argument('--max-page', type=int, default=MAX_PAGE, help=f'Página máxima para processar (padrão: {MAX_PAGE})')
     
     return parser.parse_args()
 
@@ -542,6 +545,6 @@ if __name__ == "__main__":
     CEP = args.cep
 
     start_time = time.time()
-    total_batches = process_all_pages()
+    total_batches = process_all_pages(initial_page=args.initial_page, max_page=args.max_page)
     end_time = time.time()
     execution_time = end_time - start_time
