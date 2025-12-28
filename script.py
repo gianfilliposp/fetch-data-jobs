@@ -195,6 +195,7 @@ def fetch_candidate_ids_from_page(page_number):
     """Busca e retorna os IDs dos candidatos de uma página"""
     request_data = build_pagination_request_data(page_number)
     
+    start_time = time.time()
     response = requests.get(
         LIST_CANDIDATES_URL,
         headers=HEADERS,
@@ -202,8 +203,13 @@ def fetch_candidate_ids_from_page(page_number):
         cookies=COOKIES,
         proxies=PROXIES
     )
+    elapsed_time = time.time() - start_time
+    
     response.encoding = response.apparent_encoding or 'utf-8'
     candidate_ids = sorted(set(re.findall(REGEX_PATTERNS['candidate_id'], response.text)))
+    
+    print(f"  ⏱️  Requisição de lista: {elapsed_time:.2f}s")
+    
     return candidate_ids
 
 
@@ -211,13 +217,19 @@ def fetch_candidate_full_details(candidate_id):
     """Busca os detalhes completos de um candidato (HTML completo)"""
     detail_url = f"{DETAIL_CANDIDATE_FULL_URL}/{candidate_id}"
     
+    start_time = time.time()
     response = requests.get(
         detail_url,
         headers=DETAIL_FULL_HEADERS,
         cookies=COOKIES,
         proxies=PROXIES
     )
+    elapsed_time = time.time() - start_time
+    
     response.encoding = response.apparent_encoding or 'utf-8'
+    
+    print(f"    ⏱️  Requisição de detalhes (ID {candidate_id}): {elapsed_time:.2f}s")
+    
     return response.text
 
 
