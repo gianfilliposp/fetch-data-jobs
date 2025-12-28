@@ -227,7 +227,7 @@ def fetch_candidate_ids_from_page(page_number):
     
     print(f"  ⏱️  Requisição de lista: {elapsed_time:.2f}s")
     
-    return candidate_ids
+    return candidate_ids, response.text
 
 
 def fetch_candidate_full_details(candidate_id):
@@ -440,7 +440,8 @@ def process_single_candidate(candidate_id, batch_number, record_count, supabase_
             'gender': format_value_for_csv(candidate_data['gender']),
             'gender_marital': format_value_for_csv(candidate_data['marital_status']),
             'birth_date': candidate_data['birth_date'],  # Data no formato yyyy-mm-dd
-            CEPS_UNIDADES_MAP.get(CEP): MAX_DISTANCE
+            CEPS_UNIDADES_MAP.get(CEP): MAX_DISTANCE,
+            'instancia': INSTANCIA
         }
         
         insert_supabase(candidate_row, CEPS_UNIDADES_MAP.get(CEP), supabase_cc)
@@ -459,10 +460,11 @@ def process_page(page_number, batch_number, record_count, supabase_cc):
     print(f"Processando página {page_number}...")
     print(f"{'='*50}")
     
-    candidate_ids = fetch_candidate_ids_from_page(page_number)
+    candidate_ids, resp = fetch_candidate_ids_from_page(page_number)
     
     if not candidate_ids:
         print(f"⚠️  Nenhum ID encontrado na página {page_number}. Encerrando...")
+        print("Resposta da página:", resp)
         return False, batch_number, record_count
     
     print(f"✓ Encontrados {len(candidate_ids)} candidatos na página {page_number}")
@@ -546,7 +548,8 @@ def parse_arguments():
     parser.add_argument('--cep', type=str, required=True, help='CEP (obrigatório)')
     parser.add_argument('--initial-page', type=int, default=INITIAL_PAGE, help=f'Página inicial para processar (padrão: {INITIAL_PAGE})')
     parser.add_argument('--max-page', type=int, default=MAX_PAGE, help=f'Página máxima para processar (padrão: {MAX_PAGE})')
-    
+    parser.add_argument("--instancia", required=True, help="Instancia para identificar a execução")
+
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -555,6 +558,7 @@ if __name__ == "__main__":
     # Override global defaults with CLI values
     MAX_DISTANCE = args.max_distance
     CEP = args.cep
+    INSTANCIA = args.instancia
 
     start_time = time.time()
     total_batches = process_all_pages(initial_page=args.initial_page, max_page=args.max_page)

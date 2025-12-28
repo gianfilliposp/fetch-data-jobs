@@ -46,6 +46,7 @@ def main():
     p.add_argument("--script", default="script.py", help="Path to your python script (default: script.py)")
     p.add_argument("--python", default=sys.executable, help="Python executable to use (default: current)")
     p.add_argument("--logs-dir", default="logs", help="Directory to store logs (default: logs)")
+    p.add_argument("--instancia", required=True, help="Instancia para passar ao script.py")
     args = p.parse_args()
 
     ranges = split_ranges(args.total_pages, args.num_exec, args.initial_page)
@@ -61,6 +62,7 @@ def main():
             f"--cep={args.cep}",
             f"--initial-page={start}",
             f"--max-page={end}",
+            f"--instancia={args.instancia}",
         ]
         log_f = open(log_path, "w", encoding="utf-8", buffering=1)  # Line buffering for real-time logs
         print(f"[{idx}/{len(ranges)}] pages {start}-{end} -> {log_path}")
