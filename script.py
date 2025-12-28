@@ -378,30 +378,14 @@ def insert_supabase(candidato_data, nome_unidade, supabase_cc):
     except APIError as e:
         # 2. Se o erro for de chave duplicada (geralmente código 23505 no Postgres)
         # O supabase-py lança APIError quando o banco retorna erro.
-        print(f"Conflito para o ID {candidato_id}. Verificando necessidade de update...")
+        print(f"Conflito para o ID {candidato_id}. Executando update")
         
-        # 3. Busca o registro atual para validar as condições
-        registro = supabase_cc.table("base_catho").select(nome_unidade).eq("id", candidato_id).execute()
-        
-        if registro.data:
-            dados_atuais = registro.data[0]
-            max_distance = dados_atuais.get(nome_unidade)
-
-            # Lógica de validação: nome_unidade é null OU distancia registrada > MAX_DISTANCE
-            condicao_update = (
-                max_distance is None or 
-                (max_distance > MAX_DISTANCE)
-            )
-
-            if condicao_update:
-                print(f"Condições atendidas. Atualizando registro {candidato_id}...")
-                return supabase_cc.table("base_catho").update(candidato_data).eq("id", candidato_id).execute()
-            else:
-                print(f"Registro {candidato_id} já existe e não atende critérios de atualização. Ignorado.")
-        else:
-            # Caso o erro tenha sido outro que não duplicidade
-            print(f"Erro inesperado ao processar ID {candidato_id}: {e}")
-            raise e
+        supabase_cc \
+            .table("base_catho") \
+            .update({nome_unidade: MAX_DISTANCE}) \
+            .eq("id", candidato_id) \
+            .or_(f"{nome_unidade}.gt.{MAX_DISTANCE},{nome_unidade}.is.null") \
+            .execute()
 
 def format_value_for_csv(value):
     """Formata valores para CSV: None vira string vazia, números mantêm formato"""
