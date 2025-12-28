@@ -9,6 +9,23 @@ import requests
 from supabase import create_client, Client
 from postgrest.exceptions import APIError
 
+# For Windows consoles that default to CP1252, force UTF-8 for stdout/stderr so
+# emojis and other non-CP1252 characters don't raise UnicodeEncodeError.
+# This tries the modern reconfigure() and falls back to wrapping stdout/stderr.
+import sys
+import io
+import os
+try:
+    # Prefer setting UTF-8 mode if available
+    os.environ.setdefault("PYTHONUTF8", "1")
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    # Fallback for environments where reconfigure() isn't available
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True)
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True)
+
 # ============================================================================
 # CONSTANTES E CONFIGURAÇÕES
 # ============================================================================
@@ -195,6 +212,7 @@ def fetch_candidate_ids_from_page(page_number):
     """Busca e retorna os IDs dos candidatos de uma página"""
     request_data = build_pagination_request_data(page_number)
     
+    start_time = time.time()
     response = requests.get(
         LIST_CANDIDATES_URL,
         headers=HEADERS,
@@ -202,8 +220,13 @@ def fetch_candidate_ids_from_page(page_number):
         cookies=COOKIES,
         proxies=PROXIES
     )
+    elapsed_time = time.time() - start_time
+    
     response.encoding = response.apparent_encoding or 'utf-8'
     candidate_ids = sorted(set(re.findall(REGEX_PATTERNS['candidate_id'], response.text)))
+    
+    print(f"  ⏱️  Requisição de lista: {elapsed_time:.2f}s")
+    
     return candidate_ids
 
 
@@ -211,13 +234,19 @@ def fetch_candidate_full_details(candidate_id):
     """Busca os detalhes completos de um candidato (HTML completo)"""
     detail_url = f"{DETAIL_CANDIDATE_FULL_URL}/{candidate_id}"
     
+    start_time = time.time()
     response = requests.get(
         detail_url,
         headers=DETAIL_FULL_HEADERS,
         cookies=COOKIES,
         proxies=PROXIES
     )
+    elapsed_time = time.time() - start_time
+    
     response.encoding = response.apparent_encoding or 'utf-8'
+    
+    print(f"    ⏱️  Requisição de detalhes (ID {candidate_id}): {elapsed_time:.2f}s")
+    
     return response.text
 
 
@@ -469,7 +498,7 @@ def process_all_pages(initial_page=None, max_page=None):
     print("🚀 INICIANDO PROCESSAMENTO DE CANDIDATOS")
     print("="*50)
     print(f"📋 Configurações:")
-    print(f"   - Páginas a processar: {initial_page + 1} até {max_page}")
+    print(f"   - Páginas a processar: {initial_page} até {max_page}")
     print(f"   - Tamanho do lote: {BATCH_SIZE} registros por arquivo")
     print("="*50)
     
@@ -481,9 +510,7 @@ def process_all_pages(initial_page=None, max_page=None):
     page_number = initial_page
     total_pages_processed = 0
     
-    while page_number < max_page:
-        page_number += 1
-        
+    while page_number <= max_page:
         try:
             should_continue, batch_number, record_count = process_page(page_number, batch_number, record_count, supabase_cc)
             if not should_continue:
@@ -496,6 +523,7 @@ def process_all_pages(initial_page=None, max_page=None):
             import traceback
             traceback.print_exc()
             break
+        page_number += 1
     
     print("\n" + "="*50)
     print(f"✅ PROCESSAMENTO CONCLUÍDO")
