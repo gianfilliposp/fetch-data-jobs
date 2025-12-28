@@ -34,11 +34,11 @@ LOCATION_FILTERS = {
 # CEP's de cada unidade
 CEPS_UNIDADES_MAP = {
     '01050-030': 'escritorio',  # Escritorio
-    '02857-010': 'parada_taipas',  # ParadaTaipas
+    '02989-110': 'parada_taipas',  # ParadaTaipas
     '02801-000': 'elisio',  # Elisio
     '02932-080': 'edgar_faco',  # EdgarFaco
-    '02810-000': 'ct_taipas',  # CT
-    '02915-100': 'paula_ferreira'   # PaulaFerreira
+    '02815-040': 'ct_taipas',  # CT
+    '02917-100': 'paula_ferreira'   # PaulaFerreira
 }
 
 # Proxy (mesmo dos chips de RH)
@@ -122,7 +122,7 @@ DEFAULT_MESSAGE = "Não informado"
 
 def supabase_connection():
     url: str = "https://dtktqviwceofwtuxlojs.supabase.co"
-    key: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0a3Rxdml3Y2VvZnd0dXhsb2pzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA2MjA4NTEsImV4cCI6MjA3NjE5Njg1MX0.pEQVTEz3tXSDzcsfAbN9KXvwh6K8crLvwy2P436v7L4"
+    key: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0a3Rxdml3Y2VvZnd0dXhsb2pzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MDYyMDg1MSwiZXhwIjoyMDc2MTk2ODUxfQ.HxXErjJLJn5p_fMZ9-8wQWy1GpbDz9NgHWnNo5_KQcI"
     supabase: Client = create_client(url, key)
     return supabase
 
@@ -353,13 +353,13 @@ def extract_candidate_data(candidate_id, full_html):
         'job': extract_job_from_html(full_html),
         'phone': extract_phone_from_html(full_html),
         'email': extract_email_from_html(full_html),
-        'salary': extract_salary(full_html),
+        'salary': extract_salary(full_html) if extract_salary(full_html) else 0,
         'address': extract_address_from_json(full_html),
         'working_hours': extract_working_hours(full_html),
         'contract_type': extract_contract_type(full_html),
         'gender': extract_gender(full_html),
         'marital_status': extract_marital_status(full_html),
-        'birth_date': extract_birth_date(full_html)
+        'birth_date': extract_birth_date(full_html) if extract_birth_date(full_html) else None
     }
 
 
@@ -418,15 +418,15 @@ def process_single_candidate(candidate_id, batch_number, record_count, supabase_
         # Formatar valores para CSV (None vira string vazia, números como string)
         candidate_row = {
             'id': format_value_for_csv(int(candidate_data['id']) if candidate_data['id'] else None),  # ID como número
-            'nome': format_value_for_csv(candidate_data['name']),
-            'cargo': format_value_for_csv(candidate_data['job']),
-            'telefone': format_value_for_csv(candidate_data['phone']),
+            'name': format_value_for_csv(candidate_data['name']),
+            'job': format_value_for_csv(candidate_data['job']),
+            'phone': format_value_for_csv(candidate_data['phone']),
             'email': format_value_for_csv(candidate_data['email']),
-            'salario': format_value_for_csv(candidate_data['salary']),  # Salário como número (None vira string vazia)
-            'endereco': format_value_for_csv(candidate_data['address']),
-            'sexo': format_value_for_csv(candidate_data['gender']),
-            'estado_civil': format_value_for_csv(candidate_data['marital_status']),
-            'data_nascimento': format_value_for_csv(candidate_data['birth_date']),  # Data no formato yyyy-mm-dd
+            'salary': format_value_for_csv(candidate_data['salary']),  # Salário como número (None vira string vazia)
+            'address': format_value_for_csv(candidate_data['address']),
+            'gender': format_value_for_csv(candidate_data['gender']),
+            'gender_marital': format_value_for_csv(candidate_data['marital_status']),
+            'birth_date': candidate_data['birth_date'],  # Data no formato yyyy-mm-dd
             CEPS_UNIDADES_MAP.get(CEP): MAX_DISTANCE
         }
         
