@@ -127,7 +127,8 @@ REGEX_PATTERNS = {
     'working_hours': r'<div id="WorkingHours"[^>]*>.*?<div class="col-9">\s*<div>([^<]+)</div>',
     'contract_type': r'<div id="ContractWorkType"[^>]*>.*?<div class="col-9">\s*<div>([^<]+)</div>',
     'gender_marital': r'<div class="match-personal-data[^"]*">.*?<div class="c-md">\s*([^<]+?)(?:\s+de\s+\d+\s+Anos)?\s*</div>',
-    'birth_date': r'<div class="match-personal-data[^"]*">.*?\(Nasceu\s+([^)]+)\)'
+    'birth_date': r'<div class="match-personal-data[^"]*">.*?\(Nasceu\s+([^)]+)\)',
+    'match_search_total': r'<span id="MatchSearchTotal">([^<]+)</span>'
 }
 
 # Valores padrão
@@ -208,6 +209,19 @@ def build_pagination_request_data(page_number):
     }
 
 
+def extract_match_search_total(html_content):
+    """Extrai o número total de matches do HTML"""
+    match = re.search(REGEX_PATTERNS['match_search_total'], html_content)
+    if match:
+        match_text = match.group(1).strip()
+        # Remove dots used as thousands separators (e.g., "8.259" -> "8259")
+        match_number = match_text.replace('.', '')
+        try:
+            return int(match_number)
+        except ValueError:
+            return None
+    return None
+
 def fetch_candidate_ids_from_page(page_number):
     """Busca e retorna os IDs dos candidatos de uma página"""
     request_data = build_pagination_request_data(page_number)
@@ -225,7 +239,12 @@ def fetch_candidate_ids_from_page(page_number):
     response.encoding = response.apparent_encoding or 'utf-8'
     candidate_ids = sorted(set(re.findall(REGEX_PATTERNS['candidate_id'], response.text)))
     
+    # Extract match search total
+    match_total = extract_match_search_total(response.text)
+    
     print(f"  ⏱️  Requisição de lista: {elapsed_time:.2f}s")
+    if match_total is not None:
+        print(f"  📊 Total de matches encontrados: {match_total}")
     
     return candidate_ids, response.text
 
