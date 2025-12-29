@@ -48,6 +48,8 @@ def main():
     p.add_argument("--python", default=sys.executable, help="Python executable to use (default: current)")
     p.add_argument("--logs-dir", default="logs", help="Directory to store logs (default: logs)")
     p.add_argument("--instancia", required=True, help="Instancia para passar ao script.py")
+    p.add_argument("--age-min", type=int, default=None, help="--age-min value for script.py (optional)")
+    p.add_argument("--age-max", type=int, default=None, help="--age-max value for script.py (optional)")
     args = p.parse_args()
 
     ranges = split_ranges(args.total_pages, args.num_exec, args.initial_page)
@@ -69,6 +71,11 @@ def main():
             f"--max-page={end}",
             f"--instancia={args.instancia}",
         ]
+        # Add age filters only if provided
+        if args.age_min is not None:
+            cmd.append(f"--age-min={args.age_min}")
+        if args.age_max is not None:
+            cmd.append(f"--age-max={args.age_max}")
         log_f = open(log_path, "w", encoding="utf-8", buffering=1)  # Line buffering for real-time logs
         print(f"[{idx}/{len(ranges)}] pages {start}-{end} -> {log_path}")
         procs.append((subprocess.Popen(cmd, stdout=log_f, stderr=subprocess.STDOUT, bufsize=1), log_f, cmd))

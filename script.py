@@ -198,15 +198,23 @@ def extract_salary(html_content):
 # FUNÇÕES DE REQUISIÇÃO HTTP
 # ============================================================================
 
-def build_pagination_request_data(page_number):
+def build_pagination_request_data(page_number, age_min=None, age_max=None):
     """Constrói os dados da requisição para paginação"""
-    return {
+    data = {
         'Pagination[PageNumber]': page_number,
         'Pagination[PageSize]': PAGE_SIZE,
         'CEP': CEP,
         'MaxDistance': MAX_DISTANCE,
         **LOCATION_FILTERS
     }
+    
+    # Add age filters only if provided
+    if age_min is not None:
+        data['AgeMin'] = age_min
+    if age_max is not None:
+        data['AgeMax'] = age_max
+    
+    return data
 
 
 def extract_match_search_total(html_content):
@@ -222,9 +230,9 @@ def extract_match_search_total(html_content):
             return None
     return None
 
-def fetch_candidate_ids_from_page(page_number):
+def fetch_candidate_ids_from_page(page_number, age_min=None, age_max=None):
     """Busca e retorna os IDs dos candidatos de uma página"""
-    request_data = build_pagination_request_data(page_number)
+    request_data = build_pagination_request_data(page_number, age_min=age_min, age_max=age_max)
     
     start_time = time.time()
     response = requests.get(
@@ -239,12 +247,7 @@ def fetch_candidate_ids_from_page(page_number):
     response.encoding = response.apparent_encoding or 'utf-8'
     candidate_ids = sorted(set(re.findall(REGEX_PATTERNS['candidate_id'], response.text)))
     
-    # Extract match search total
-    match_total = extract_match_search_total(response.text)
-    
     print(f"  ⏱️  Requisição de lista: {elapsed_time:.2f}s")
-    if match_total is not None:
-        print(f"  📊 Total de matches encontrados: {match_total}")
     
     return candidate_ids, response.text
 
@@ -473,13 +476,16 @@ def process_single_candidate(candidate_id, batch_number, record_count, supabase_
         return record_count
 
 
-def process_page(page_number, batch_number, record_count, supabase_cc):
+def process_page(page_number, batch_number, record_count, supabase_cc, age_min=None, age_max=None):
     """Processa uma página de candidatos"""
     print(f"\n{'='*50}")
     print(f"Processando página {page_number}...")
     print(f"{'='*50}")
     
-    candidate_ids, resp = fetch_candidate_ids_from_page(page_number)
+    candidate_ids, resp = fetch_candidate_ids_from_page(page_number, age_min=age_min, age_max=age_max)
+    match_total = extract_match_search_total(resp)
+    if match_total is not None:
+        print(f"  📊 Total de matches encontrados: {match_total}")
     
     if not candidate_ids:
         print(f"⚠️  Nenhum ID encontrado na página {page_number}. Encerrando...")
@@ -507,7 +513,7 @@ def process_page(page_number, batch_number, record_count, supabase_cc):
     return True, current_batch, current_count
 
 
-def process_all_pages(initial_page=None, max_page=None):
+def process_all_pages(initial_page=None, max_page=None, age_min=None, age_max=None):
     """Processa todas as páginas de candidatos"""
     # Usar valores padrão globais se não fornecidos
     if initial_page is None:
@@ -521,6 +527,10 @@ def process_all_pages(initial_page=None, max_page=None):
     print(f"📋 Configurações:")
     print(f"   - Páginas a processar: {initial_page} até {max_page}")
     print(f"   - Tamanho do lote: {BATCH_SIZE} registros por arquivo")
+    if age_min is not None:
+        print(f"   - Idade mínima: {age_min}")
+    if age_max is not None:
+        print(f"   - Idade máxima: {age_max}")
     print("="*50)
     
     # Inicializar primeiro arquivo
@@ -533,7 +543,7 @@ def process_all_pages(initial_page=None, max_page=None):
     
     while page_number <= max_page:
         try:
-            should_continue, batch_number, record_count = process_page(page_number, batch_number, record_count, supabase_cc)
+            should_continue, batch_number, record_count = process_page(page_number, batch_number, record_count, supabase_cc, age_min=age_min, age_max=age_max)
             if not should_continue:
                 break
             
@@ -568,6 +578,8 @@ def parse_arguments():
     parser.add_argument('--initial-page', type=int, default=INITIAL_PAGE, help=f'Página inicial para processar (padrão: {INITIAL_PAGE})')
     parser.add_argument('--max-page', type=int, default=MAX_PAGE, help=f'Página máxima para processar (padrão: {MAX_PAGE})')
     parser.add_argument("--instancia", required=True, help="Instancia para identificar a execução")
+    parser.add_argument('--age-min', type=int, default=None, help='Idade mínima do candidato (opcional)')
+    parser.add_argument('--age-max', type=int, default=None, help='Idade máxima do candidato (opcional)')
 
     return parser.parse_args()
 
@@ -580,6 +592,11 @@ if __name__ == "__main__":
     INSTANCIA = args.instancia
 
     start_time = time.time()
-    total_batches = process_all_pages(initial_page=args.initial_page, max_page=args.max_page)
+    total_batches = process_all_pages(
+        initial_page=args.initial_page, 
+        max_page=args.max_page,
+        age_min=args.age_min,
+        age_max=args.age_max
+    )
     end_time = time.time()
     execution_time = end_time - start_time
