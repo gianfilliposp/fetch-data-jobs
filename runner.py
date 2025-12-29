@@ -4,6 +4,7 @@ import math
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 
@@ -50,12 +51,16 @@ def main():
     args = p.parse_args()
 
     ranges = split_ranges(args.total_pages, args.num_exec, args.initial_page)
-    logs_dir = Path(args.logs_dir)
-    logs_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create timestamp-based execution directory
+    now = datetime.now()
+    timestamp_dir = now.strftime("%Y-%m-%d_%H-%M-%S")  # YYYY-MM-DD_HH-MM-SS
+    execution_dir = Path(args.logs_dir) / timestamp_dir
+    execution_dir.mkdir(parents=True, exist_ok=True)
 
     procs = []
     for idx, (start, end) in enumerate(ranges, start=1):
-        log_path = logs_dir / f"job_{idx:03d}_{start}-{end}.log"
+        log_path = execution_dir / f"job_{idx:03d}_{start}-{end}.log"
         cmd = [
             args.python, "-u", args.script,  # -u for unbuffered output
             f"--max-distance={args.max_distance}",
@@ -82,7 +87,7 @@ def main():
             print(f"  rc={rc} cmd={' '.join(cmd)}")
         sys.exit(1)
 
-    print(f"\nAll done. Logs in: {logs_dir.resolve()}")
+    print(f"\nAll done. Logs in: {execution_dir.resolve()}")
 
 
 if __name__ == "__main__":
