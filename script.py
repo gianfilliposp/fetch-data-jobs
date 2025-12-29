@@ -30,6 +30,9 @@ except Exception:
 # CONSTANTES E CONFIGURAÇÕES
 # ============================================================================
 
+# Nome da tabela no Supabase
+SUPABASE_TABLE_NAME = "base_catho_tnt"
+
 # Configuração de lotes
 BATCH_SIZE = 100  # Número de registros por arquivo CSV
 
@@ -424,7 +427,7 @@ def insert_supabase(candidato_data, nome_unidade, supabase_cc):
     try:
         # 1. Tenta o INSERT direto
         print(f"Tentando inserir ID {candidato_id}...")
-        return supabase_cc.table("base_catho").insert(candidato_data).execute()
+        return supabase_cc.table(SUPABASE_TABLE_NAME).insert(candidato_data).execute()
 
     except APIError as e:
         # 2. Se o erro for de chave duplicada (geralmente código 23505 no Postgres)
@@ -432,7 +435,7 @@ def insert_supabase(candidato_data, nome_unidade, supabase_cc):
         print(f"Conflito para o ID {candidato_id}. Executando update")
         
         supabase_cc \
-            .table("base_catho") \
+            .table(SUPABASE_TABLE_NAME) \
             .update({nome_unidade: MAX_DISTANCE}) \
             .eq("id", candidato_id) \
             .or_(f"{nome_unidade}.gt.{MAX_DISTANCE},{nome_unidade}.is.null") \
