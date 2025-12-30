@@ -250,7 +250,7 @@ def fetch_candidate_ids_from_page(page_number, age_min=None, age_max=None):
     response.encoding = response.apparent_encoding or 'utf-8'
     candidate_ids = sorted(set(re.findall(REGEX_PATTERNS['candidate_id'], response.text)))
     
-    print(f"  ⏱️  Requisição de lista: {elapsed_time:.2f}s")
+    print(f"  Requisição de lista: {elapsed_time:.2f}s")
     
     return candidate_ids, response.text
 
@@ -270,7 +270,7 @@ def fetch_candidate_full_details(candidate_id):
     
     response.encoding = response.apparent_encoding or 'utf-8'
     
-    print(f"    ⏱️  Requisição de detalhes (ID {candidate_id}): {elapsed_time:.2f}s")
+    print(f"    Requisição de detalhes (ID {candidate_id}): {elapsed_time:.2f}s")
     
     return response.text
 
@@ -475,7 +475,7 @@ def process_single_candidate(candidate_id, batch_number, record_count, supabase_
         return record_count + 1
     
     except Exception as e:
-        print(f"      ❌ Erro ao processar candidato {candidate_id}: {e}")
+        print(f"      Erro ao processar candidato {candidate_id}: {e}")
         return record_count
 
 
@@ -488,15 +488,15 @@ def process_page(page_number, batch_number, record_count, supabase_cc, age_min=N
     candidate_ids, resp = fetch_candidate_ids_from_page(page_number, age_min=age_min, age_max=age_max)
     match_total = extract_match_search_total(resp)
     if match_total is not None:
-        print(f"  📊 Total de matches encontrados: {match_total}")
+        print(f"  Total de matches encontrados: {match_total}")
     
     if not candidate_ids:
-        print(f"⚠️  Nenhum ID encontrado na página {page_number}. Encerrando...")
+        print(f"  Nenhum ID encontrado na página {page_number}. Encerrando...")
         print("Resposta da página:", resp)
         return False, batch_number, record_count
     
-    print(f"✓ Encontrados {len(candidate_ids)} candidatos na página {page_number}")
-    print(f"📄 Lote atual: {batch_number} | Registros no lote: {record_count}/{BATCH_SIZE}")
+    print(f"Encontrados {len(candidate_ids)} candidatos na página {page_number}")
+    print(f"Lote atual: {batch_number} | Registros no lote: {record_count}/{BATCH_SIZE}")
     
     current_batch = batch_number
     current_count = record_count
@@ -506,12 +506,12 @@ def process_page(page_number, batch_number, record_count, supabase_cc, age_min=N
         if current_count >= BATCH_SIZE:
             current_batch += 1
             current_count = 0
-            print(f"📄 Lote atual: {current_batch} | Registros no lote: {current_count}/{BATCH_SIZE}")
+            print(f"Lote atual: {current_batch} | Registros no lote: {current_count}/{BATCH_SIZE}")
         
         current_count = process_single_candidate(candidate_id, current_batch, current_count, supabase_cc)
     
-    print(f"\n✓ Página {page_number} concluída: {len(candidate_ids)} candidatos processados")
-    print(f"📊 Total no lote atual: {current_count}/{BATCH_SIZE}")
+    print(f"\nPágina {page_number} concluída: {len(candidate_ids)} candidatos processados")
+    print(f"Total no lote atual: {current_count}/{BATCH_SIZE}")
     
     return True, current_batch, current_count
 
@@ -525,9 +525,9 @@ def process_all_pages(initial_page=None, max_page=None, age_min=None, age_max=No
         max_page = MAX_PAGE
     
     print("\n" + "="*50)
-    print("🚀 INICIANDO PROCESSAMENTO DE CANDIDATOS")
+    print("INICIANDO PROCESSAMENTO DE CANDIDATOS")
     print("="*50)
-    print(f"📋 Configurações:")
+    print(f"Configurações:")
     print(f"   - Páginas a processar: {initial_page} até {max_page}")
     print(f"   - Tamanho do lote: {BATCH_SIZE} registros por arquivo")
     if age_min is not None:
@@ -553,14 +553,14 @@ def process_all_pages(initial_page=None, max_page=None, age_min=None, age_max=No
             total_pages_processed += 1
             
         except Exception as e:
-            print(f"\n❌ Erro na página {page_number}: {e}")
+            print(f"\nErro na página {page_number}: {e}")
             import traceback
             traceback.print_exc()
             break
         page_number += 1
     
     print("\n" + "="*50)
-    print(f"✅ PROCESSAMENTO CONCLUÍDO")
+    print(f"PROCESSAMENTO CONCLUÍDO")
     print(f"   - Páginas processadas: {total_pages_processed}")
     print(f"   - Total de lotes criados: {batch_number}")
     print(f"   - Registros no último lote: {record_count}/{BATCH_SIZE}")
