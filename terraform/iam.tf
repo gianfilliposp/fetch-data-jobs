@@ -34,13 +34,33 @@ resource "aws_iam_role_policy" "lambda_dynamodb_access" {
         Effect = "Allow"
         Action = [
           "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:UpdateItem",
-          "dynamodb:DeleteItem",
-          "dynamodb:Query",
-          "dynamodb:Scan"
         ]
         Resource = "*"
+      }
+    ]
+  })
+}
+
+# SQS access for Lambda to consume messages
+resource "aws_iam_role_policy" "lambda_sqs_access" {
+  name = "${var.project_name}-sqs-policy-${var.environment}"
+  role = aws_iam_role.lambda_execution_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:GetQueueUrl"
+        ]
+        Resource = [
+          aws_sqs_queue.ai_message_creator.arn,
+          aws_sqs_queue.ai_message_creator_dlq.arn
+        ]
       }
     ]
   })
