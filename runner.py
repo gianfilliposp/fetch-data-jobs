@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import argparse
+import csv
 import json
 import math
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -36,37 +38,56 @@ def split_ranges(total_pages: int, num_exec: int, initial_page: int = 1):
     return ranges
 
 
-def run_execution(args, age_min=None, age_max=None, execution_dir=None, age_range_idx=None):
-    """Run a single execution with given age filters"""
-    ranges = split_ranges(args.total_pages, args.num_exec, args.initial_page)
+def read_ceps_from_csv(csv_file='ceps.csv'):
+    """Gera CEPs do arquivo CSV um por vez (generator)"""
+    try:
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                cep = row.get('cep', '').strip()
+                if cep:
+                    yield cep
+    except FileNotFoundError:
+        print(f"Erro: Arquivo {csv_file} não encontrado", file=sys.stderr)
+        return
+    except Exception as e:
+        print(f"Erro ao ler arquivo {csv_file}: {e}", file=sys.stderr)
+        return
+
+
+def run_execution(args, cep, execution_dir=None):
+    """Run parallel executions of script.py for a single CEP, splitting pages across num_exec processes"""
+    # Calculate total pages to process
+    total_pages = args.max_page - args.initial_page + 1
+    ranges = split_ranges(total_pages, args.num_exec, args.initial_page)
     
-    # Create subdirectory for age range if provided
-    if age_range_idx is not None:
-        age_dir = execution_dir / f"age_range_{age_range_idx:02d}_min{age_min}_max{age_max}"
-        age_dir.mkdir(parents=True, exist_ok=True)
-        log_base_dir = age_dir
-    else:
-        log_base_dir = execution_dir
+    # Create subdirectory for this CEP
+    cep_dir = execution_dir / f"cep_{cep.replace('-', '_')}"
+    cep_dir.mkdir(parents=True, exist_ok=True)
 
     procs = []
     for idx, (start, end) in enumerate(ranges, start=1):
-        log_path = log_base_dir / f"job_{idx:03d}_{start}-{end}.log"
+        log_path = cep_dir / f"job_{idx:03d}_{start}-{end}.log"
         cmd = [
             args.python, "-u", args.script,  # -u for unbuffered output
             f"--max-distance={args.max_distance}",
-            f"--cep={args.cep}",
+            f"--cep={cep}",
             f"--initial-page={start}",
             f"--max-page={end}",
             f"--instancia={args.instancia}",
         ]
-        # Add age filters only if provided
-        if age_min is not None:
-            cmd.append(f"--age-min={age_min}")
-        if age_max is not None:
-            cmd.append(f"--age-max={age_max}")
+        # Add age list if provided
+        if args.min_max_age_list:
+            cmd.append(f"--min-max-age-list={args.min_max_age_list}")
+        elif args.age_min is not None or args.age_max is not None:
+            # Single age range
+            if args.age_min is not None:
+                cmd.append(f"--age-min={args.age_min}")
+            if args.age_max is not None:
+                cmd.append(f"--age-max={args.age_max}")
+        
         log_f = open(log_path, "w", encoding="utf-8", buffering=1)  # Line buffering for real-time logs
-        age_info = f" (age {age_min}-{age_max})" if age_min is not None and age_max is not None else ""
-        print(f"[{idx}/{len(ranges)}] pages {start}-{end}{age_info} -> {log_path}")
+        print(f"[{idx}/{len(ranges)}] CEP {cep} - pages {start}-{end} -> {log_path}")
         procs.append((subprocess.Popen(cmd, stdout=log_f, stderr=subprocess.STDOUT, bufsize=1), log_f, cmd))
 
     # Wait all
@@ -78,9 +99,9 @@ def run_execution(args, age_min=None, age_max=None, execution_dir=None, age_rang
             failed.append((rc, cmd))
 
     if failed:
-        print("\nSome jobs failed:")
+        print(f"\n  ✗ CEP {cep}: {len(failed)} job(s) falharam:")
         for rc, cmd in failed:
-            print(f"  rc={rc} cmd={' '.join(cmd)}")
+            print(f"    rc={rc} cmd={' '.join(cmd)}")
         return False
     
     return True
@@ -88,13 +109,14 @@ def run_execution(args, age_min=None, age_max=None, execution_dir=None, age_rang
 
 def main():
     p = argparse.ArgumentParser(
-        description="Run script.py in parallel, auto-splitting page ranges."
+        description="Run script.py in parallel for each CEP, auto-splitting page ranges."
     )
-    p.add_argument("--cep", required=True, help="CEP to pass to script.py")
-    p.add_argument("--total-pages", type=int, required=True, help="Total pages count (e.g., 73 => pages 0..72)")
-    p.add_argument("--num-exec", type=int, required=True, help="Number of executions (also parallelism)")
-    p.add_argument("--initial-page", type=int, default=1, help="Initial page to start from (default: 1)")
-    p.add_argument("--max-distance", type=int, default=1, help="--max-distance value for script.py")
+    p.add_argument("--cep", type=str, default=None, help="Single CEP to process (optional, if not provided reads from ceps.csv)")
+    p.add_argument("--ceps-file", type=str, default="ceps.csv", help="CSV file with CEPs (default: ceps.csv)")
+    p.add_argument("--total-pages", type=int, required=True, help="Total pages count (e.g., 101 => pages 0..100)")
+    p.add_argument("--num-exec", type=int, required=True, help="Number of parallel executions (also parallelism)")
+    p.add_argument("--initial-page", type=int, default=0, help="Initial page to start from (default: 0)")
+    p.add_argument("--max-distance", type=int, required=True, help="--max-distance value for script.py")
     p.add_argument("--script", default="script.py", help="Path to your python script (default: script.py)")
     p.add_argument("--python", default=sys.executable, help="Python executable to use (default: current)")
     p.add_argument("--logs-dir", default="logs", help="Directory to store logs (default: logs)")
@@ -104,6 +126,9 @@ def main():
     p.add_argument("--min-max-age-list", type=str, default=None, 
                    help='JSON list of age ranges, e.g., [{"min": 1, "max": 18}, {"min": 18, "max": 20}]')
     args = p.parse_args()
+    
+    # Calculate max_page from total_pages and initial_page
+    args.max_page = args.initial_page + args.total_pages - 1
 
     # Create timestamp-based execution directory
     now = datetime.now()
@@ -111,8 +136,7 @@ def main():
     execution_dir = Path(args.logs_dir) / timestamp_dir
     execution_dir.mkdir(parents=True, exist_ok=True)
 
-    # Parse age range list if provided
-    age_ranges = None
+    # Validate age list if provided
     if args.min_max_age_list:
         try:
             age_ranges = json.loads(args.min_max_age_list)
@@ -131,42 +155,68 @@ def main():
             print(f"Error: Invalid JSON in --min-max-age-list: {e}")
             sys.exit(1)
 
-    # If age range list is provided, process each range sequentially
-    if age_ranges:
-        print(f"\n{'='*60}")
-        print(f"Processing {len(age_ranges)} age range(s)")
-        print(f"{'='*60}\n")
-        
-        all_success = True
-        for idx, age_range in enumerate(age_ranges, start=1):
-            age_min = age_range['min']
-            age_max = age_range['max']
-            print(f"\n{'='*60}")
-            print(f"Age Range {idx}/{len(age_ranges)}: {age_min}-{age_max}")
-            print(f"{'='*60}\n")
-            
-            success = run_execution(args, age_min=age_min, age_max=age_max, 
-                                   execution_dir=execution_dir, age_range_idx=idx)
-            if not success:
-                all_success = False
-                print(f"\n⚠️  Age range {idx} ({age_min}-{age_max}) had failures")
-            else:
-                print(f"\n✓ Age range {idx} ({age_min}-{age_max}) completed successfully")
-        
-        if not all_success:
-            print("\n⚠️  Some age ranges had failures")
-            sys.exit(1)
-        
-        print(f"\n{'='*60}")
-        print(f"✅ All age ranges completed. Logs in: {execution_dir.resolve()}")
-        print(f"{'='*60}")
+    # Get CEPs to process
+    if args.cep:
+        # Single CEP provided
+        ceps_to_process = [args.cep]
+        print(f"Processando CEP único: {args.cep}")
     else:
-        # Single execution with optional age filters
-        success = run_execution(args, age_min=args.age_min, age_max=args.age_max, 
-                               execution_dir=execution_dir)
-        if not success:
+        # Read CEPs from CSV file
+        print(f"Lendo CEPs do arquivo {args.ceps_file}")
+        ceps_to_process = list(read_ceps_from_csv(args.ceps_file))
+        if not ceps_to_process:
+            print("Nenhum CEP encontrado. Encerrando.", file=sys.stderr)
             sys.exit(1)
-        print(f"\nAll done. Logs in: {execution_dir.resolve()}")
+        print(f"Encontrados {len(ceps_to_process)} CEPs para processar")
+
+    print(f"\n{'='*70}")
+    print(f"INICIANDO PROCESSAMENTO")
+    print(f"CEPs a processar: {len(ceps_to_process)}")
+    print(f"Páginas por CEP: {args.total_pages} (de {args.initial_page} a {args.max_page})")
+    print(f"Execuções paralelas por CEP: {args.num_exec}")
+    if args.min_max_age_list:
+        age_ranges = json.loads(args.min_max_age_list)
+        print(f"Faixas etárias por CEP: {len(age_ranges)}")
+    print(f"{'='*70}\n")
+
+    total_start_time = time.time()
+    total_ceps_processed = 0
+    failed_ceps = []
+
+    # Process each CEP sequentially
+    for cep_idx, cep in enumerate(ceps_to_process, 1):
+        print(f"\n{'='*70}")
+        print(f"CEP {cep_idx}/{len(ceps_to_process)}: {cep}")
+        print(f"{'='*70}")
+        
+        # Run parallel executions for this CEP (script.py will process all age ranges)
+        success = run_execution(args, cep, execution_dir=execution_dir)
+        
+        if success:
+            total_ceps_processed += 1
+            print(f"\n✓ CEP {cep} completamente processado ({args.num_exec} execuções paralelas)")
+        else:
+            failed_ceps.append(cep)
+            print(f"\n✗ CEP {cep} falhou")
+        
+        print(f"{'='*70}\n")
+
+    total_end_time = time.time()
+    total_execution_time = total_end_time - total_start_time
+
+    print(f"\n{'='*70}")
+    print(f"PROCESSAMENTO COMPLETO")
+    print(f"CEPs processados com sucesso: {total_ceps_processed}/{len(ceps_to_process)}")
+    if failed_ceps:
+        print(f"CEPs com falhas: {len(failed_ceps)}")
+        for cep in failed_ceps:
+            print(f"  - {cep}")
+    print(f"Tempo total: {total_execution_time:.2f}s")
+    print(f"Logs em: {execution_dir.resolve()}")
+    print(f"{'='*70}")
+
+    if failed_ceps:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
