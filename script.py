@@ -45,6 +45,7 @@ DETAIL_CANDIDATE_FULL_URL = "https://pandape.infojobs.com.br/Company/CandidateCa
 PAGE_SIZE = 100
 INITIAL_PAGE = 0
 MAX_PAGE = 101
+MAX_DISTANCE=None
 
 # Filtros de localização
 LOCATION_FILTERS = {
@@ -240,7 +241,7 @@ def build_pagination_request_data(page_number, cep, age_min=None, age_max=None):
         'Pagination[PageNumber]': page_number,
         'Pagination[PageSize]': PAGE_SIZE,
         'CEP': cep,
-        'MaxDistance': MAX_DISTANCE,
+        'MaxDistance': MAX_DISTANCE if MAX_DISTANCE is not None else 1,
         # **LOCATION_FILTERS
     }
     
@@ -260,6 +261,28 @@ def extract_match_search_total(html_content):
         match_text = match.group(1).strip()
         # Remove dots used as thousands separators (e.g., "8.259" -> "8259")
         match_number = match_text.replace('.', '')
+        try:
+            return int(match_number)
+        except ValueError:
+            return None
+    return None
+
+def get_total_candidades_from_filters(cep, age_min=None, age_max=None):
+    """Obtém o número total de candidatos de acordo com os filtros"""
+    request_data = build_pagination_request_data(1, cep, age_min=age_min, age_max=age_max)
+    response = requests.get(
+        LIST_CANDIDATES_URL,
+        headers=HEADERS,
+        params=request_data,
+        cookies=COOKIES,
+    )
+    print(f"response: {response}")
+    match = re.search(r'<span class="js_SubTotalText">([\d.]+)<\/span>', response.text)
+    if match:
+        match_text = match.group(1).strip()
+        # Remove dots used as thousands separators (e.g., "8.259" -> "8259")
+        match_number = match_text.replace('.', '')
+        print(f"Total de candidatos: {match_number}")
         try:
             return int(match_number)
         except ValueError:
@@ -513,6 +536,47 @@ def process_single_candidate(candidate_id, batch_number, record_count, supabase_
         print(f"      Erro ao processar candidato {candidate_id}: {e}")
         return record_count
 
+def get_non_existent_candidate_ids(candidate_ids, supabase_cc):
+    """
+    Obtém os IDs dos candidatos que não existem no banco de dados.
+    
+    Args:
+        candidate_ids: Lista de IDs de candidatos para verificar (pode ser strings ou inteiros)
+        supabase_cc: Cliente Supabase conectado
+        
+    Returns:
+        Lista de IDs que não existem no banco de dados (preserva o tipo original)
+    """
+    if not candidate_ids:
+        return []
+    
+    try:
+        # Query Supabase para obter todos os IDs que já existem
+        # A coluna 'id' armazena o candidate_id
+        response = supabase_cc.table(SUPABASE_TABLE_NAME).select("id").in_("id", candidate_ids).execute()
+        
+        # Extrair os IDs existentes e normalizar para comparação
+        existing_ids = set()
+        if response.data:
+            for row in response.data:
+                id_val = row['id']
+                # Normalizar para string para comparação (funciona com int e str)
+                existing_ids.add(str(id_val))
+        
+        # Filtrar IDs que não existem, preservando o tipo original
+        non_existent = []
+        for cid in candidate_ids:
+            # Comparar como strings para garantir que funciona independente do tipo
+            if str(cid) not in existing_ids:
+                non_existent.append(cid)
+        
+        return non_existent
+        
+    except Exception as e:
+        print(f"Erro ao verificar IDs existentes no banco: {e}", file=sys.stderr)
+        # Em caso de erro, retorna todos os IDs (assumindo que nenhum existe)
+        # Isso evita que o processamento pare por causa de um erro na verificação
+        return candidate_ids
 
 def process_page(page_number, batch_number, record_count, supabase_cc, cep, age_min=None, age_max=None):
     """Processa uma página de candidatos"""
@@ -521,11 +585,23 @@ def process_page(page_number, batch_number, record_count, supabase_cc, cep, age_
     print(f"{'='*50}")
     
     candidate_ids, resp = fetch_candidate_ids_from_page(page_number, cep, age_min=age_min, age_max=age_max)
+    non_existent_candidate_ids = get_non_existent_candidate_ids(candidate_ids, supabase_cc)
+    
+    # IDs que já existem no banco (não serão inseridos)
+    existing_candidate_ids = [cid for cid in candidate_ids if cid not in non_existent_candidate_ids]
+    
+    # Filtrar para processar apenas IDs que não existem
+    candidate_ids = non_existent_candidate_ids
+    
+    # Imprimir IDs que já existem e foram pulados
+    if existing_candidate_ids:
+        print(f"  {len(existing_candidate_ids)} candidato(s) já existente(s) no banco (pulados): {', '.join(map(str, existing_candidate_ids))}")
+    
     match_total = extract_match_search_total(resp)
     if match_total is not None:
         print(f"  Total de matches encontrados: {match_total}")
     
-    if not candidate_ids:
+    if not candidate_ids and not existing_candidate_ids:
         print(f"  Nenhum ID encontrado na página {page_number}. Encerrando...")
         # print("Resposta da página:", resp)
         return False, batch_number, record_count
@@ -664,18 +740,36 @@ if __name__ == "__main__":
     
     # Process all age ranges for this CEP
     if age_ranges:
+        # Check if age_range_total_pages is provided via environment variable
+        age_range_total_pages = None
+        if 'AGE_RANGE_TOTAL_PAGES' in os.environ:
+            try:
+                age_range_total_pages = json.loads(os.environ['AGE_RANGE_TOTAL_PAGES'])
+                print(f"Total de páginas por faixa etária fornecido: {age_range_total_pages}")
+            except json.JSONDecodeError as e:
+                print(f"Erro ao parsear AGE_RANGE_TOTAL_PAGES: {e}", file=sys.stderr)
+        
         print(f"Processando {len(age_ranges)} faixa(s) etária(s) para este CEP")
         for age_idx, age_range in enumerate(age_ranges, 1):
             age_min = age_range['min']
             age_max = age_range['max']
             print(f"\n--- Faixa etária {age_idx}/{len(age_ranges)}: {age_min}-{age_max} anos ---")
             
+            # Calculate max_page for this age range if age_range_total_pages is provided
+            max_page_for_range = args.max_page
+            if age_range_total_pages:
+                age_key = f"{age_min}-{age_max}"
+                if age_key in age_range_total_pages:
+                    total_pages_for_range = age_range_total_pages[age_key]
+                    max_page_for_range = args.initial_page + total_pages_for_range - 1
+                    print(f"Usando {total_pages_for_range} páginas para esta faixa etária (max_page: {max_page_for_range})")
+            
             try:
                 start_time = time.time()
                 total_batches = process_all_pages(
                     cep=CEP,
                     initial_page=args.initial_page, 
-                    max_page=args.max_page,
+                    max_page=max_page_for_range,
                     age_min=age_min,
                     age_max=age_max
                 )
